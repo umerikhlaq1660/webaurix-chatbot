@@ -18,7 +18,7 @@ app = FastAPI(
  Allowed domains (CORS)
 origins = [
     "https://webaurix.com",                     
-    "https://webaurix-chatbot-4.onrender.com",  
+    "https://webaurix-chatbot-5.onrender.com",  
     "http://localhost:5173",                    
 ]
 
@@ -110,3 +110,4 @@ async def chat(request: ChatRequest):
 @app.get("/")
 async def root():
     return {"message": " Webaurix Chatbot API is running successfully!"}
+
