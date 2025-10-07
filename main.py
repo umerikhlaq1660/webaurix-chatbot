@@ -9,25 +9,23 @@ from openai import AsyncOpenAI
 load_dotenv()
 
 
-app = FastAPI(
-    title="Webaurix Chatbot API",
-    version="1.1",
-    description="A smart assistant backend for Webaurix website",
-)
+app = FastAPI(title="Webaurix Chatbot API", version="1.0")
 
+# Allowed origins 
 origins = [
-    "https://webaurix.com",                       
-    "http://localhost:5173",                    
+    "https://webaurix.com",                   
+    "https://webaurix-chatbot-5.onrender.com",  
+    "http://localhost:5173",                  
 ]
+
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,      
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],          
-    allow_headers=["*"],          
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-
 
 client = AsyncOpenAI()
 
@@ -65,12 +63,16 @@ def clean_reply(text: str) -> str:
     return text
 
 
+@app.get("/")
+async def root():
+    return {"status": "ok", "message": "Webaurix Chatbot API is running "}
+
+
 @app.post("/chat")
 async def chat(request: ChatRequest):
     try:
         user_message = request.message.strip().lower()
 
-        # 🔹 Step 1: Check custom predefined answers
         match = difflib.get_close_matches(
             user_message, list(custom_answers.keys()), n=1, cutoff=0.6
         )
@@ -80,34 +82,26 @@ async def chat(request: ChatRequest):
             conversation_history.append({"role": "assistant", "content": reply})
             return {"reply": reply}
 
-        # 🔹 Step 2: Prepare chat history for AI
+        
         conversation_history.append({"role": "user", "content": request.message})
         messages = [{"role": "system", "content": system_prompt}] + conversation_history[-6:]
 
-        # 🔹 Step 3: Generate reply from OpenAI
+       
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=messages,
             temperature=0.6,
-            max_tokens=500,
+            max_tokens=1000,
         )
 
         assistant_message = response.choices[0].message.content
         assistant_message = clean_reply(assistant_message)
 
-        # 🔹 Step 4: Save message and return
+        
         conversation_history.append({"role": "assistant", "content": assistant_message})
 
         return {"reply": assistant_message}
 
     except Exception as e:
-       
-        return {"reply": f"⚠ Server error: {str(e)}"}
-
-
-@app.get("/")
-async def root():
-    return {"message": " Webaurix Chatbot API is running successfully!"}
-
-
-
+        print(f"⚠ Error: {e}")
+        return {"reply": "⚠ Error connecting to the server. Please try again later."}
