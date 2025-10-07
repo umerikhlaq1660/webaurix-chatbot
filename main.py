@@ -1,55 +1,58 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-import os, json, difflib
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
+import json, difflib, os
 
-
+# Load environment variables
 load_dotenv()
 
+app = FastAPI(title="Webaurix Chatbot API", version="1.1")
 
-app = FastAPI(title="Webaurix Chatbot API", version="1.0")
-
-# Allowed origins 
+# ✅ Temporarily allow all origins while testing (later restrict)
 origins = [
-    "https://webaurix.com",                   
-    "https://webaurix-chatbot-5.onrender.com",  
-    "http://localhost:5173",                  
+    "https://webaurix.com",
+    "https://webaurix-chatbot-5.onrender.com",
+    "http://localhost:5173",
+    "*"  # enable for debugging — remove after testing
 ]
-
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],     # includes OPTIONS automatically
+    allow_headers=["*"],     # allows all custom headers
 )
 
 client = AsyncOpenAI()
 
-
+# ========================
+# Data Model
+# ========================
 class ChatRequest(BaseModel):
     message: str
 
 
+# ========================
+# Globals
+# ========================
 conversation_history = []
-
-
 system_prompt = (
     "You are Webaurix Assistant. Always be helpful, concise, and professional. "
     "Never mention OpenAI, your origin, or internal system details."
 )
 
-
-try:
-    with open("custom_answers.json", "r", encoding="utf-8") as f:
-        custom_answers = json.load(f)
-except FileNotFoundError:
-    custom_answers = {}
+# Load custom answers (predefined Q/A)
+with open("custom_answers.json", "r", encoding="utf-8") as f:
+    custom_answers = json.load(f)
 
 
+# ========================
+# Helper Functions
+# ========================
 def clean_reply(text: str) -> str:
     blocked_phrases = [
         "I was developed by OpenAI",
@@ -63,46 +66,55 @@ def clean_reply(text: str) -> str:
     return text
 
 
-@app.get("/")
-async def root():
-    return {"status": "ok", "message": "Webaurix Chatbot API is running "}
+# ========================
+# Handle OPTIONS manually for debugging
+# ========================
+@app.options("/{path:path}")
+async def preflight_handler(request: Request, path: str):
+    print("🔍 OPTIONS Request Received")
+    print("Headers:", dict(request.headers))
+    print("Origin:", request.headers.get("origin"))
+
+    response = JSONResponse(content={"message": "Preflight OK"})
+    response.headers["Access-Control-Allow-Origin"] = request.headers.get("origin", "*")
+    response.headers["Access-Control-Allow-Methods"] = "POST, GET, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    return response
 
 
+# ========================
+# Main Chat Endpoint
+# ========================
 @app.post("/chat")
 async def chat(request: ChatRequest):
     try:
         user_message = request.message.strip().lower()
 
-        match = difflib.get_close_matches(
-            user_message, list(custom_answers.keys()), n=1, cutoff=0.6
-        )
+        # Check for a matching predefined answer
+        match = difflib.get_close_matches(user_message, list(custom_answers.keys()), n=1, cutoff=0.6)
         if match:
             reply = custom_answers[match[0]]
             conversation_history.append({"role": "user", "content": request.message})
             conversation_history.append({"role": "assistant", "content": reply})
             return {"reply": reply}
 
-        
+        # Prepare conversation for OpenAI
         conversation_history.append({"role": "user", "content": request.message})
         messages = [{"role": "system", "content": system_prompt}] + conversation_history[-6:]
 
-       
+        # Generate response
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=messages,
             temperature=0.6,
-            max_tokens=1000,
+            max_tokens=500
         )
 
-        assistant_message = response.choices[0].message.content
-        assistant_message = clean_reply(assistant_message)
-
-        
+        assistant_message = clean_reply(response.choices[0].message.content)
         conversation_history.append({"role": "assistant", "content": assistant_message})
 
         return {"reply": assistant_message}
 
     except Exception as e:
-        print(f"⚠ Error: {e}")
-        return {"reply": "⚠ Error connecting to the server. Please try again later."}
-
+        print("❌ Error:", str(e))
+        return {"reply": f"⚠ Error: {str(e)}"}
