@@ -16,7 +16,6 @@ origins = [
     "https://webaurix.com",
     "https://webaurix-chatbot-5.onrender.com",
     "http://localhost:5173",
-    "*"  
 ]
 
 app.add_middleware(
@@ -59,22 +58,6 @@ def clean_reply(text: str) -> str:
             return "I’m your Webaurix Assistant, here to help you!"
     return text
 
-
-
-@app.options("/{path:path}")
-async def preflight_handler(request: Request, path: str):
-    print("🔍 OPTIONS Request Received")
-    print("Headers:", dict(request.headers))
-    print("Origin:", request.headers.get("origin"))
-
-    response = JSONResponse(content={"message": "Preflight OK"})
-    response.headers["Access-Control-Allow-Origin"] = request.headers.get("origin", "*")
-    response.headers["Access-Control-Allow-Methods"] = "POST, GET, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-    return response
-
-
-
 @app.post("/chat")
 async def chat(request: ChatRequest):
     try:
@@ -97,7 +80,7 @@ async def chat(request: ChatRequest):
             model="gpt-4o-mini",
             messages=messages,
             temperature=0.6,
-            max_tokens=500
+            max_tokens=1500
         )
 
         assistant_message = clean_reply(response.choices[0].message.content)
