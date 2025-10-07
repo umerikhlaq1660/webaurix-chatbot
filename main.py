@@ -1,33 +1,36 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import os, json
+import os, json, difflib
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
-import difflib
 
 
 load_dotenv()
 
 
-app = FastAPI(title="Webaurix Chatbot API", version="1.0")
+app = FastAPI(
+    title="Webaurix Chatbot API",
+    version="1.1",
+    description="A smart assistant backend for Webaurix website",
+)
 
-
-# Remove trailing slash from URLs — it causes mismatches! 
+ Allowed domains (CORS)
 origins = [
-    "https://webaurix.com",
-    "http://127.0.0.1:5173",
-    "http://localhost:5173",  
+    "https://webaurix.com",                     
+    "https://webaurix-chatbot-4.onrender.com",  
+    "http://localhost:5173",                    
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,        
+    allow_origins=origins,      
     allow_credentials=True,
-    allow_methods=["*"],         
+    allow_methods=["*"],          
     allow_headers=["*"],          
 )
-# 
+
+
 client = AsyncOpenAI()
 
 
@@ -44,8 +47,11 @@ system_prompt = (
 )
 
 
-with open("custom_answers.json", "r", encoding="utf-8") as f:
-    custom_answers = json.load(f)
+try:
+    with open("custom_answers.json", "r", encoding="utf-8") as f:
+        custom_answers = json.load(f)
+except FileNotFoundError:
+    custom_answers = {}
 
 
 def clean_reply(text: str) -> str:
@@ -53,7 +59,7 @@ def clean_reply(text: str) -> str:
         "I was developed by OpenAI",
         "an artificial intelligence research organization",
         "as an AI developed by OpenAI",
-        "I am a language model created by OpenAI"
+        "I am a language model created by OpenAI",
     ]
     for phrase in blocked_phrases:
         if phrase.lower() in text.lower():
@@ -66,33 +72,41 @@ async def chat(request: ChatRequest):
     try:
         user_message = request.message.strip().lower()
 
-        # Check for a matching predefined answer
-        match = difflib.get_close_matches(user_message, list(custom_answers.keys()), n=1, cutoff=0.6)
+        # 🔹 Step 1: Check custom predefined answers
+        match = difflib.get_close_matches(
+            user_message, list(custom_answers.keys()), n=1, cutoff=0.6
+        )
         if match:
             reply = custom_answers[match[0]]
             conversation_history.append({"role": "user", "content": request.message})
             conversation_history.append({"role": "assistant", "content": reply})
             return {"reply": reply}
 
-        # Create context for OpenAI
+        # 🔹 Step 2: Prepare chat history for AI
         conversation_history.append({"role": "user", "content": request.message})
         messages = [{"role": "system", "content": system_prompt}] + conversation_history[-6:]
 
-        # Generate response from OpenAI
+        # 🔹 Step 3: Generate reply from OpenAI
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=messages,
             temperature=0.6,
-            max_tokens=500
+            max_tokens=500,
         )
 
         assistant_message = response.choices[0].message.content
         assistant_message = clean_reply(assistant_message)
 
-        # Save to history
+        # 🔹 Step 4: Save message and return
         conversation_history.append({"role": "assistant", "content": assistant_message})
 
         return {"reply": assistant_message}
 
     except Exception as e:
-        return {"reply": f"⚠ Error: {str(e)}"}
+       
+        return {"reply": f"⚠ Server error: {str(e)}"}
+
+
+@app.get("/")
+async def root():
+    return {"message": " Webaurix Chatbot API is running successfully!"}
