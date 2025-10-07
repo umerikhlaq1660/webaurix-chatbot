@@ -12,16 +12,16 @@ load_dotenv()
 app = FastAPI(title="Webaurix Chatbot API", version="1.0")
 
 # Allowed origins 
-origins = [
-    "https://webaurix.com",                   
-    "https://webaurix-chatbot-5.onrender.com",  
-    "http://localhost:5173",                  
-]
+# origins = [
+#     "https://webaurix.com",                   
+#     "https://webaurix-chatbot-5.onrender.com",  
+#     "http://localhost:5173",                  
+# ]
 
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -105,3 +105,4 @@ async def chat(request: ChatRequest):
     except Exception as e:
         print(f"⚠ Error: {e}")
         return {"reply": "⚠ Error connecting to the server. Please try again later."}
+
