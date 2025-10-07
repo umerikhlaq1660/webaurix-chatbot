@@ -1,58 +1,54 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+import os, json, difflib
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
-import json, difflib, os
+
 
 # Load environment variables
 load_dotenv()
 
-app = FastAPI(title="Webaurix Chatbot API", version="1.1")
+# Initialize FastAPI
+app = FastAPI(title="Webaurix Chatbot API", version="1.0")
 
-# ✅ Temporarily allow all origins while testing (later restrict)
+# Allowed origins (secure for production)
 origins = [
-    "https://webaurix.com",
-    "https://webaurix-chatbot-5.onrender.com",
-    "http://localhost:5173",
-    "*"  # enable for debugging — remove after testing
+    "https://webaurix.com",                    # 🌐 your main site
+    "https://webaurix-chatbot-5.onrender.com", # ⚙️ Render backend
+    "http://localhost:5173"                    # 🧪 for local testing only
 ]
 
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],     # includes OPTIONS automatically
-    allow_headers=["*"],     # allows all custom headers
+    allow_methods=["*"],   # Allow all methods
+    allow_headers=["*"],   # Allow all headers
 )
 
+# Initialize OpenAI client
 client = AsyncOpenAI()
 
-# ========================
-# Data Model
-# ========================
+# Define request model
 class ChatRequest(BaseModel):
     message: str
 
-
-# ========================
-# Globals
-# ========================
+# Store conversation history
 conversation_history = []
+
+# System role for chatbot personality
 system_prompt = (
     "You are Webaurix Assistant. Always be helpful, concise, and professional. "
     "Never mention OpenAI, your origin, or internal system details."
 )
 
-# Load custom answers (predefined Q/A)
+# Load predefined answers
 with open("custom_answers.json", "r", encoding="utf-8") as f:
     custom_answers = json.load(f)
 
-
-# ========================
-# Helper Functions
-# ========================
+# Function to clean AI replies
 def clean_reply(text: str) -> str:
     blocked_phrases = [
         "I was developed by OpenAI",
@@ -66,31 +62,19 @@ def clean_reply(text: str) -> str:
     return text
 
 
-# ========================
-# Handle OPTIONS manually for debugging
-# ========================
-@app.options("/{path:path}")
-async def preflight_handler(request: Request, path: str):
-    print("🔍 OPTIONS Request Received")
-    print("Headers:", dict(request.headers))
-    print("Origin:", request.headers.get("origin"))
-
-    response = JSONResponse(content={"message": "Preflight OK"})
-    response.headers["Access-Control-Allow-Origin"] = request.headers.get("origin", "*")
-    response.headers["Access-Control-Allow-Methods"] = "POST, GET, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-    return response
-
-
-# ========================
-# Main Chat Endpoint
-# ========================
+# ✅ Main Chat Endpoint
 @app.post("/chat")
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, req: Request):
     try:
+        # 🛡️ Origin check for extra security
+        origin = req.headers.get("origin")
+        allowed = ["https://webaurix.com", "https://webaurix-chatbot-5.onrender.com", "http://localhost:5173"]
+        if origin not in allowed:
+            raise HTTPException(status_code=403, detail="Origin not allowed")
+
         user_message = request.message.strip().lower()
 
-        # Check for a matching predefined answer
+        # 🧠 Check if message matches predefined responses
         match = difflib.get_close_matches(user_message, list(custom_answers.keys()), n=1, cutoff=0.6)
         if match:
             reply = custom_answers[match[0]]
@@ -98,11 +82,11 @@ async def chat(request: ChatRequest):
             conversation_history.append({"role": "assistant", "content": reply})
             return {"reply": reply}
 
-        # Prepare conversation for OpenAI
+        # 🧩 Context for OpenAI
         conversation_history.append({"role": "user", "content": request.message})
         messages = [{"role": "system", "content": system_prompt}] + conversation_history[-6:]
 
-        # Generate response
+        # 🤖 Get AI reply
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=messages,
@@ -110,11 +94,30 @@ async def chat(request: ChatRequest):
             max_tokens=500
         )
 
-        assistant_message = clean_reply(response.choices[0].message.content)
+        assistant_message = response.choices[0].message.content
+        assistant_message = clean_reply(assistant_message)
+
+        # Save to conversation
         conversation_history.append({"role": "assistant", "content": assistant_message})
 
         return {"reply": assistant_message}
 
     except Exception as e:
-        print("❌ Error:", str(e))
         return {"reply": f"⚠ Error: {str(e)}"}
+
+
+# ✅ Preflight (OPTIONS) — only for debugging (can remove later)
+@app.options("/{path:path}")
+async def preflight_handler(request: Request, path: str):
+    """
+    Handles CORS preflight manually for debugging.
+    Remove this route after confirming CORS works properly.
+    """
+    origin = request.headers.get("origin")
+    if origin in origins:
+        return {
+            "message": "CORS preflight OK",
+            "origin": origin
+        }
+    else:
+        raise HTTPException(status_code=400, detail="CORS origin not allowed")
