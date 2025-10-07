@@ -12,16 +12,10 @@ load_dotenv()
 app = FastAPI(title="Webaurix Chatbot API", version="1.1")
 
 # ✅ Temporarily allow all origins while testing (later restrict)
-origins = [
-    "https://webaurix.com",
-    "https://webaurix-chatbot-5.onrender.com",
-    "http://localhost:5173",
-    "*"  # enable for debugging — remove after testing
-]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["https://webaurix.com"],
     allow_credentials=True,
     allow_methods=["*"],     # includes OPTIONS automatically
     allow_headers=["*"],     # allows all custom headers
@@ -66,21 +60,6 @@ def clean_reply(text: str) -> str:
     return text
 
 
-# ========================
-# Handle OPTIONS manually for debugging
-# ========================
-@app.options("/{path:path}")
-async def preflight_handler(request: Request, path: str):
-    print("🔍 OPTIONS Request Received")
-    print("Headers:", dict(request.headers))
-    print("Origin:", request.headers.get("origin"))
-
-    response = JSONResponse(content={"message": "Preflight OK"})
-    response.headers["Access-Control-Allow-Origin"] = request.headers.get("origin", "*")
-    response.headers["Access-Control-Allow-Methods"] = "POST, GET, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-    return response
-
 
 # ========================
 # Main Chat Endpoint
@@ -118,3 +97,4 @@ async def chat(request: ChatRequest):
     except Exception as e:
         print("❌ Error:", str(e))
         return {"reply": f"⚠ Error: {str(e)}"}
+
